@@ -32,7 +32,7 @@ CITY.comunas=CITY.comunas||[]; CITY.comunasGeojson=CITY.comunasGeojson||"comunas
 CITY.live=!!CITY.live; CITY.liveBase=CITY.liveBase||""; CITY.voz=CITY.voz||{ejeSing:"eje",ejePlur:"ejes",EjePlur:"Ejes"};
 const _cap=t=>t?t.charAt(0).toUpperCase()+t.slice(1):t;
 const _liveUrl=n=> (CITY.live&&CITY.liveBase?CITY.liveBase:"data/")+n;
-const J = n => fetch(`data/${n}?v=218`).then(r=>{if(!r.ok)throw 0;return r.json();});
+const J = n => fetch(`data/${n}?v=219`).then(r=>{if(!r.ok)throw 0;return r.json();});
 // reloj en vivo (fecha + hora Chile) en el header — útil para las capturas
 function tickReloj(){
   const el = document.getElementById("hdr-reloj-txt"); if(!el) return;
@@ -400,6 +400,9 @@ function renderDemanda(){
     kpiCard("Total del período", fmt(DEM.total||0), (per.desde?per.desde+" → "+per.hasta:""), "📊","neutral"),
     kpiCard("Hora punta", (hp.h!=null?hp.h+":00":"—"), (hp.pct!=null?Math.round(hp.pct*100)+"% del día":""), "⏰","neutral"),
     kpiCard("Gratuidad", (DEM.gratuidad!=null?Math.round(DEM.gratuidad*100)+"%":"—"), "viajes liberados (viaje_emergencia)", "🎟️","neutral"),
+    (()=>{ const cx=DEM.composicion?Object.entries(DEM.composicion).sort((a,b)=>b[1]-a[1]):[];
+      return kpiCard("Usuarios", cx.length?Math.round(cx[0][1]*100)+"% "+cx[0][0]:"—",
+        cx.map(([k,v])=>Math.round(v*100)+"% "+k).join(" · ")+" (por tarifa, inferido)", "👥","neutral"); })(),
   ].join("");
   renderDemCurva();
   $("dem-ranking").innerHTML=(DEM.lineas||[]).map(l=>`<div class="litem"><span class="ln">${l.linea}</span><span class="nm">${empresaDe(l.linea)||""}</span><span class="mt" style="margin-left:auto;font-variant-numeric:tabular-nums;color:var(--muted)">${fmt(l.diaria_L)}</span></div>`).join("");
