@@ -32,7 +32,7 @@ CITY.comunas=CITY.comunas||[]; CITY.comunasGeojson=CITY.comunasGeojson||"comunas
 CITY.live=!!CITY.live; CITY.liveBase=CITY.liveBase||""; CITY.voz=CITY.voz||{ejeSing:"eje",ejePlur:"ejes",EjePlur:"Ejes"};
 const _cap=t=>t?t.charAt(0).toUpperCase()+t.slice(1):t;
 const _liveUrl=n=> (CITY.live&&CITY.liveBase?CITY.liveBase:"data/")+n;
-const J = n => fetch(`data/${n}?v=220`).then(r=>{if(!r.ok)throw 0;return r.json();});
+const J = n => fetch(`data/${n}?v=221`).then(r=>{if(!r.ok)throw 0;return r.json();});
 // reloj en vivo (fecha + hora Chile) en el header — útil para las capturas
 function tickReloj(){
   const el = document.getElementById("hdr-reloj-txt"); if(!el) return;
@@ -389,7 +389,7 @@ function kpiCard(l,v,s,icon,stt){   // stt = good|warning|critical|neutral
 const semHigh = (v,g,w) => v>=g?"good":v>=w?"warning":"critical";
 const semLow  = (v,g,w) => v<g?"good":v<w?"warning":"critical";
 // ===== MODO DEMANDA: banda de KPIs + curva intradía + ranking + mapa de calor de abordajes =====
-let DEM=null, DEMESL=null, demCurva=null, dmap=null, dmapLayer=null;
+let DEM=null, DEMESL=null, DEMEJE=null, demCurva=null, dmap=null, dmapLayer=null;
 function renderDemanda(){
   if(!DEM){ $("dem-kpis").innerHTML='<div class="empty">Cargando demanda…</div>'; return; }
   const di=DEM.diaria||{}, rf=DEM.ratio_finde||{}, per=DEM.periodo||{}, hp=DEM.hora_punta||{};
@@ -431,11 +431,23 @@ function renderDemMap(){
     dmap=L.map("dmap",{center:[CITY.lat0,CITY.lon0],zoom:12,zoomControl:true});
     L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",{maxZoom:20,subdomains:"abcd",attribution:"© OSM © CARTO"}).addTo(dmap);
   }
-  if(!DEMESL||!DEMESL.length){ setTimeout(()=>{try{dmap.invalidateSize();}catch(e){}},60); return; }
-  if(dmapLayer) dmap.removeLayer(dmapLayer);
-  const mx=Math.max.apply(null,DEMESL.map(b=>b.tot))||1;
+  if(dmapLayer){ dmap.removeLayer(dmapLayer); dmapLayer=null; }
   dmapLayer=L.layerGroup();
-  DEMESL.forEach(b=>{ const f=b.tot/mx; L.circleMarker([b.lat,b.lon],{radius:3+Math.sqrt(f)*11,color:demColor(f),weight:0,fillOpacity:.5}).addTo(dmapLayer); });
+  // VISTA POR EJE: cada corredor pintado por su demanda. Escala PERCEPTUAL por cuantiles (rank) → grosor + color
+  // se reparten uniforme entre los ejes, así la intensidad relativa se distingue (no la aplasta el máximo).
+  if(INFRAE&&INFRAE.plan&&DEMEJE){
+    const vals=INFRAE.plan.map(e=>((DEMEJE[e.eje]||{}).tot)||0).filter(v=>v>0).sort((a,b)=>a-b);
+    const rank=v=>{ if(!vals.length) return 0; let lo=0,hi=vals.length; while(lo<hi){const m=(lo+hi)>>1; if(vals[m]<v)lo=m+1;else hi=m;} return vals.length>1?lo/(vals.length-1):1; };
+    INFRAE.plan.slice().sort((a,b)=>(((DEMEJE[a.eje]||{}).tot)||0)-(((DEMEJE[b.eje]||{}).tot)||0)).forEach(e=>{
+      const v=((DEMEJE[e.eje]||{}).tot)||0; if(!v) return;
+      const f=rank(v), col=demColor(f), w=2.5+f*10;
+      (e.segs||[]).forEach(seg=>{
+        L.polyline(seg.map(p=>[p[1],p[0]]),{color:col,weight:w,opacity:.9,lineCap:"round"})
+          .bindTooltip(`<b>${e.eje}</b><br>${fmt(v)} abordajes/período`,{sticky:true}).addTo(dmapLayer);
+      });
+    });
+    const ms=$("dem-map-sub"); if(ms) ms.textContent="por corredor · grosor y color = intensidad de abordajes (escala por cuantiles)";
+  }
   dmapLayer.addTo(dmap);
   setTimeout(()=>{try{dmap.invalidateSize();}catch(e){}},60);
 }
@@ -3202,10 +3214,11 @@ function renderEvolucion(){
     }).catch(()=>{});
     J("baseline_30min.json").then(d=>{ BASE30=d; loadDia(); }).catch(()=>{});   // baseline + vivo del inicio
     J("baseline_var.json").then(d=>{ BVAR=d; if(state.vista==="normal"&&state.linea!=="TODAS") renderVarObserved(); }).catch(()=>{});   // baseline por variante (Bloque 3)
-    J("infraestructura.json").then(d=>{ INFRAE=d; if(state.modo==="infra") renderInfra(); }).catch(()=>{});   // observatorio de infraestructura
+    J("infraestructura.json").then(d=>{ INFRAE=d; if(state.modo==="infra") renderInfra(); else if(state.modo==="demanda") renderDemMap(); }).catch(()=>{});   // observatorio de infraestructura (+ geometría de ejes para el mapa de demanda)
     if(CITY.demanda){   // 3er lente: validaciones del medio de pago (abordajes)
       J("demanda.json").then(d=>{ DEM=d; if(state.modo==="demanda") renderDemanda(); }).catch(()=>{});
-      J("demanda_eslabon.json").then(d=>{ DEMESL=d; if(state.modo==="demanda") renderDemMap(); }).catch(()=>{});
+      J("demanda_eslabon.json").then(d=>{ DEMESL=d; }).catch(()=>{});
+      J("demanda_eje.json").then(d=>{ DEMEJE=d; if(state.modo==="demanda") renderDemMap(); }).catch(()=>{});
     }
     J("flujo_ejes.json").then(d=>{ FLUJOEJES=d; if(state.modo==="infra") renderInfra(); }).catch(()=>{});   // flujo buses/h por eje×sentido
     J("vel_eje.json").then(d=>{ VELEJE=d; if(state.modo==="infra") renderInfra(); }).catch(()=>{});   // velocidad física + excesos por eje (v_1km)
