@@ -8,6 +8,7 @@ window.CITY = {
   comunasGeojson: "comunas_punta_arenas.geojson",
   live: true,
   liveBase: "https://storage.googleapis.com/puntaarenas-transporte-live/",
+  demanda: true,                        // 3er modo: validaciones del medio de pago (abordajes)
   repo: "transportepublicoPuntaArenas",
   voz: {"ejeSing": "eje", "ejePlur": "ejes", "EjePlur": "Ejes"},
 };
