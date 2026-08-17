@@ -32,7 +32,7 @@ CITY.comunas=CITY.comunas||[]; CITY.comunasGeojson=CITY.comunasGeojson||"comunas
 CITY.live=!!CITY.live; CITY.liveBase=CITY.liveBase||""; CITY.voz=CITY.voz||{ejeSing:"eje",ejePlur:"ejes",EjePlur:"Ejes"};
 const _cap=t=>t?t.charAt(0).toUpperCase()+t.slice(1):t;
 const _liveUrl=n=> (CITY.live&&CITY.liveBase?CITY.liveBase:"data/")+n;
-const J = n => fetch(`data/${n}?v=221`).then(r=>{if(!r.ok)throw 0;return r.json();});
+const J = n => fetch(`data/${n}?v=222`).then(r=>{if(!r.ok)throw 0;return r.json();});
 // reloj en vivo (fecha + hora Chile) en el header — útil para las capturas
 function tickReloj(){
   const el = document.getElementById("hdr-reloj-txt"); if(!el) return;
@@ -390,6 +390,18 @@ const semHigh = (v,g,w) => v>=g?"good":v>=w?"warning":"critical";
 const semLow  = (v,g,w) => v<g?"good":v<w?"warning":"critical";
 // ===== MODO DEMANDA: banda de KPIs + curva intradía + ranking + mapa de calor de abordajes =====
 let DEM=null, DEMESL=null, DEMEJE=null, demCurva=null, dmap=null, dmapLayer=null;
+let demPer="tot", demSen="amb";   // filtros del mapa de demanda por eje: período (tot/am/md/pm/off/noche) y sentido (amb/I/R)
+const DEM_PER=[["tot","Todo el día"],["am","Punta AM"],["md","Mediodía"],["pm","Punta PM"],["off","Fuera punta"],["noche","Noche"]];
+const DEM_SEN=[["amb","Ambos"],["I","Ida"],["R","Regreso"]];
+function demEjeVal(e){ const o=DEMEJE&&DEMEJE[e.eje]; if(!o) return 0;
+  if(demSen==="amb") return ((o.I&&o.I[demPer])||0)+((o.R&&o.R[demPer])||0);
+  return (o[demSen]&&o[demSen][demPer])||0; }
+function renderDemCtrls(){
+  const pp=$("dem-per"); if(pp) pp.innerHTML=DEM_PER.map(([k,l])=>`<b data-dp="${k}" class="${demPer===k?"on":""}">${l}</b>`).join("");
+  const ps=$("dem-sen"); if(ps) ps.innerHTML=DEM_SEN.map(([k,l])=>`<b data-ds="${k}" class="${demSen===k?"on":""}">${l}</b>`).join("");
+  if(pp) pp.querySelectorAll("b").forEach(b=>b.onclick=()=>{ demPer=b.dataset.dp; renderDemCtrls(); renderDemMap(); });
+  if(ps) ps.querySelectorAll("b").forEach(b=>b.onclick=()=>{ demSen=b.dataset.ds; renderDemCtrls(); renderDemMap(); });
+}
 function renderDemanda(){
   if(!DEM){ $("dem-kpis").innerHTML='<div class="empty">Cargando demanda…</div>'; return; }
   const di=DEM.diaria||{}, rf=DEM.ratio_finde||{}, per=DEM.periodo||{}, hp=DEM.hora_punta||{};
@@ -406,6 +418,7 @@ function renderDemanda(){
   ].join("");
   renderDemCurva();
   $("dem-ranking").innerHTML=(DEM.lineas||[]).map(l=>`<div class="litem"><span class="ln">${l.linea}</span><span class="nm">${empresaDe(l.linea)||""}</span><span class="mt" style="margin-left:auto;font-variant-numeric:tabular-nums;color:var(--muted)">${fmt(l.diaria_L)}</span></div>`).join("");
+  renderDemCtrls();
   renderDemMap();
 }
 function renderDemCurva(){
@@ -436,17 +449,18 @@ function renderDemMap(){
   // VISTA POR EJE: cada corredor pintado por su demanda. Escala PERCEPTUAL por cuantiles (rank) → grosor + color
   // se reparten uniforme entre los ejes, así la intensidad relativa se distingue (no la aplasta el máximo).
   if(INFRAE&&INFRAE.plan&&DEMEJE){
-    const vals=INFRAE.plan.map(e=>((DEMEJE[e.eje]||{}).tot)||0).filter(v=>v>0).sort((a,b)=>a-b);
+    const vals=INFRAE.plan.map(demEjeVal).filter(v=>v>0).sort((a,b)=>a-b);
     const rank=v=>{ if(!vals.length) return 0; let lo=0,hi=vals.length; while(lo<hi){const m=(lo+hi)>>1; if(vals[m]<v)lo=m+1;else hi=m;} return vals.length>1?lo/(vals.length-1):1; };
-    INFRAE.plan.slice().sort((a,b)=>(((DEMEJE[a.eje]||{}).tot)||0)-(((DEMEJE[b.eje]||{}).tot)||0)).forEach(e=>{
-      const v=((DEMEJE[e.eje]||{}).tot)||0; if(!v) return;
+    INFRAE.plan.slice().sort((a,b)=>demEjeVal(a)-demEjeVal(b)).forEach(e=>{
+      const v=demEjeVal(e); if(!v) return;
       const f=rank(v), col=demColor(f), w=2.5+f*10;
       (e.segs||[]).forEach(seg=>{
         L.polyline(seg.map(p=>[p[1],p[0]]),{color:col,weight:w,opacity:.9,lineCap:"round"})
-          .bindTooltip(`<b>${e.eje}</b><br>${fmt(v)} abordajes/período`,{sticky:true}).addTo(dmapLayer);
+          .bindTooltip(`<b>${e.eje}</b><br>${fmt(v)} abordajes`,{sticky:true}).addTo(dmapLayer);
       });
     });
-    const ms=$("dem-map-sub"); if(ms) ms.textContent="por corredor · grosor y color = intensidad de abordajes (escala por cuantiles)";
+    const lbl=(DEM_PER.find(x=>x[0]===demPer)||["","Todo el día"])[1];
+    const ms=$("dem-map-sub"); if(ms) ms.textContent="por corredor · "+lbl.toLowerCase()+" · "+(demSen==="amb"?"ambos sentidos":demSen==="I"?"ida":"regreso")+" · escala por cuantiles (laboral)";
   }
   dmapLayer.addTo(dmap);
   setTimeout(()=>{try{dmap.invalidateSize();}catch(e){}},60);
