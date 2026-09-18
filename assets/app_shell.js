@@ -33,7 +33,7 @@ CITY.comunas=CITY.comunas||[]; CITY.comunasGeojson=CITY.comunasGeojson||"comunas
 CITY.live=!!CITY.live; CITY.liveBase=CITY.liveBase||""; CITY.voz=CITY.voz||{ejeSing:"eje",ejePlur:"ejes",EjePlur:"Ejes"};
 const _cap=t=>t?t.charAt(0).toUpperCase()+t.slice(1):t;
 const _liveUrl=n=> (CITY.live&&CITY.liveBase?CITY.liveBase:"data/")+n;
-const J = n => fetch(`data/${n}?v=243`).then(r=>{if(!r.ok)throw 0;return r.json();});
+const J = n => fetch(`data/${n}?v=244`).then(r=>{if(!r.ok)throw 0;return r.json();});
 // reloj en vivo (fecha + hora Chile) en el header — útil para las capturas
 function tickReloj(){
   const el = document.getElementById("hdr-reloj-txt"); if(!el) return;
@@ -285,7 +285,7 @@ function initCityChrome(){
   // indicador de estado: feed en vivo (dot + edad) para ciudades LIVE; análisis histórico para estáticas
   set("#hdr-status", CITY.live
       ? `<span class="dot-live"></span><span>actualizado hace <span id="live-age" class="font-mono text-[var(--tx)]">—</span></span>`
-      : `<span>análisis histórico · GPS</span>`);
+      : `<span>GPS · <span id="hdr-ventana">—</span></span>`);
   set("#hdr-status", CITY.live ? "Última actualización del feed GTFS-RT" : "Análisis sobre registros GPS históricos (sin feed en vivo)", "title");
   // encabezados del lente de infraestructura (voz: ejes / corredores)
   set("#infra-map-title", `Principales ${V.ejePlur} con transporte público`);
@@ -444,6 +444,7 @@ function buildLineaList(filter=""){
 
 /* ---------- render ---------- */
 function render(){
+  try{ setHdrVentana(); }catch(e){}   // el período del dato en el encabezado (ciudad estática)
   // ETAPA 2: por defecto NO estamos en la vista de línea compuesta (oferta+demanda apiladas); el hook al
   // final del bloque de operación la reactiva si corresponde. Esto limpia el estado al cambiar de modo/vista
   // (p.ej. al entrar al modo demanda independiente, donde el ranking de líneas SÍ debe verse).
@@ -630,6 +631,26 @@ function renderDemCtrls(){
     pm.querySelectorAll("b").forEach(b=>b.onclick=()=>{ demMet=b.dataset.dm2; renderDemCtrls(); renderDemMap(); }); }
 }
 function renderDemanda(){
+  /* PERÍODO DE LA DEMANDA — y el aviso cuando NO es el mismo que el de la oferta.
+     En Antofagasta la demanda es de jul-2026 y el GPS de jun-2025: indicadores como
+     "pasajeros por bus" cruzan un numerador de un año con un denominador de otro. La cifra sirve
+     igual (la flota se mantuvo: 88,3% de las patentes calzan), pero quien la lee tiene que saberlo. */
+  try{
+    const n = $("dem-note");
+    if(n && DEM && DEM.periodo){
+      const dd = (DEM.periodo.desde||"").slice(0,7), hh = (DEM.periodo.hasta||"").slice(0,7);
+      const per = (dd===hh||!hh) ? dd : `${dd} a ${hh}`;
+      const of0 = (typeof T!=="undefined" && T && T.desde) ? T.desde.slice(0,7) : null;
+      const of1 = (typeof T!=="undefined" && T && T.hasta) ? T.hasta.slice(0,7) : null;
+      const cruza = of0 && (hh < of0 || dd > (of1||of0));   // sin solape entre demanda y oferta
+      n.innerHTML = `<span class="dot"></span><span>Validaciones del medio de pago de <b>${per}</b>`
+        + (cruza ? ` — la <b>oferta</b> (flota, velocidad, frecuencia) es de <b>${of0===of1?of0:of0+" a "+of1}</b>:
+             los indicadores que cruzan ambas, como <b>pasajeros por bus</b>, comparan períodos distintos.` : "")
+        + `</span>`;
+      n.hidden = false;
+    }
+  }catch(e){}
+
   if(!DEM){ $("dem-kpis").innerHTML='<div class="empty">Cargando demanda…</div>'; return; }
   // Banda de 9 KPIs: del SISTEMA, o de la LÍNEA elegida (empresa/recorrido) si hay una seleccionada.
   const lb = (state.linea && state.linea!=="TODAS") ? (DEM.lineas||[]).find(l=>l.linea===state.linea) : null;
@@ -848,6 +869,31 @@ function histCard(lab,val,sub,icon,stt,tip){
     `<div class="val ${SEM_CLS[st]}">${val}</div><div class="sub">${sub}</div></div>`;
 }
 
+/* Encabezado de una ciudad ESTÁTICA: en vez del rótulo vago "análisis histórico", el PERÍODO REAL
+   del dato. GCCP muestra algo concreto ("actualizado hace 20s") y acá corresponde lo equivalente:
+   de cuándo son las cifras que se están mirando. Se alimenta de `desde/hasta` de territorio.json,
+   que escribe refresh_historico midiendo el agregado. */
+const _MESES = ["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
+function _mesAnio(iso){
+  const m = String(iso||"").match(/^(\d{4})-(\d{2})/);
+  return m ? `${_MESES[+m[2]-1]}-${m[1]}` : null;
+}
+let _hdrVentanaOk=false;
+function setHdrVentana(){
+  if(_hdrVentanaOk) return;
+  const el = $("hdr-ventana"); if(!el || typeof T==="undefined" || !T) return;
+  _hdrVentanaOk=true;
+  const a = _mesAnio(T.desde), b = _mesAnio(T.hasta);
+  if(!a && !b) return;
+  // `meses` cuenta solo los meses con >=7 días de dato (lo calcula refresh_historico). Con uno
+  // solo se muestra ESE mes: decir "jun-2025 a jul-2025" cuando julio son 2.159 pulsos de una
+  // madrugada implicaría dos meses de operación que no existen.
+  el.textContent = (T.meses === 1 || a === b || !b) ? a : `${a} a ${b}`;
+  const st = $("hdr-status");
+  if(st) st.setAttribute("title",
+    `Registros GPS históricos${T.dias?` · ${T.dias} días con dato`:""} — esta ciudad no tiene feed en vivo`);
+}
+
 function _kpiNote(html){
   const n = $("kpis2-note"); if(!n) return;
   if(!html){ n.hidden = true; n.innerHTML = ""; return; }
@@ -895,7 +941,7 @@ function renderKPIs(cell){
         return liveBox(sp, val, nrm, pct, opts);
       });
       // 8ª tarjeta: líneas. Sin comparador (no tiene "promedio del día"), mismo formato de arco.
-      cards.push(liveBox({k:"lineas", lab:"Líneas", ic:IC.bus, dir:0, unit:"",
+      cards.push(liveBox({k:"lineas", lab:"Líneas", ic:"🚏", dir:0, unit:"",
                           f:v=>fmt(Math.round(v))}, k.n_lineas, null, null,
                          {hist:true, tip:"Líneas con dato en el período"}));
       $("kpis2").classList.add("kpis-8");
@@ -1021,9 +1067,12 @@ function liveBox(s, live, norm, pct, opts){
   // baseline "normal a esta hora" (no decorativo). Color del arco = estado (gaugeColor); pista = --line-soft.
   const prog = pct==null ? "" :
     `<path d="M ${cx-r} ${cy} A ${r} ${r} 0 0 1 ${tx} ${ty}" fill="none" stroke="${col}" stroke-width="8" stroke-linecap="round"/>`;
-  return `<div class="kpi klive${opts.hist?" k-hist":""}" data-k="${s.k}" style="border-color:${col}30">`+
+  return `<div class="kpi klive${opts.hist?" k-hist":""}" data-k="${s.k}" style="border-color:${col}30"`+
+    (opts.hist?` title="${opts.tip||"Del registro GPS histórico"}"`:"")+`>`+
     `<div class="lab"><span class="ic">${s.ic}</span>${s.lab}`+
-    (opts.hist?`<span class="hist-tag" title="${opts.tip||"Del registro GPS historico"}">histórico</span>`:"")+
+    // sin sello en la tarjeta: GCCP no lo lleva y la nota bajo la banda ya declara el período.
+    // El `title` conserva la advertencia al pasar el mouse, sin ensuciar el diseño.
+    ""+
     `</div>`+
     `<svg class="gauge" viewBox="-8 -12 216 118">`+
       `<path class="g-track" d="M ${cx-r} ${cy} A ${r} ${r} 0 0 1 ${cx+r} ${cy}" fill="none" stroke="var(--line-soft)" stroke-width="8" stroke-linecap="round"/>`+
@@ -3734,6 +3783,7 @@ function renderEvolucion(){
     [T, GEOM, GEO, CUMP, PAR, CSEM] = await Promise.all([
       loadT, J("lineas_geom.json"), J(CITY.comunasGeojson), J("cumplimiento.json"),
       J("paraderos.json").catch(()=>({})), J("cumplimiento_semanal.json").catch(()=>({lineas:{}}))]);
+    try{ setHdrVentana(); }catch(e){}   // el período del dato, ya con territorio.json cargado
     if(T.hasta){ const pe=$("periodo-pill"); if(pe) pe.textContent = "datos hasta "+T.hasta; }
     // Declara la VENTANA COMPLETA, no solo la fecha final: "Datos hasta jun-2025" no dice si hay
     // un mes o un año detrás, y con un solo mes (Antofagasta: junio 2025, 30 días) las cifras se
@@ -3807,6 +3857,9 @@ function renderEvolucion(){
     // spec declarativo de KPIs (opcional, fallback al hardcode si no carga)
     J("kpis_spec.json").then(s=>{
       if(s && Array.isArray(s.kpis)) LIVE_KPIS = s.kpis.map(o=>({...o, f:(_LIVE_FMT[o.fmt]||_LIVE_FMT.int)}));
+      // el spec trae los iconos EMOJI que usa GCCP y pisa los SVG inline: hay que volver a
+      // dibujar la banda, o la histórica (que se pinta una sola vez) queda con los iconos grises.
+      try{ renderKPIs(cellOf()); }catch(e){}
     }).catch(()=>{});
     J("baseline_30min.json").then(d=>{ BASE30=d;
       // la banda histórica de 8 tarjetas se arma CON el baseline, y este llega async: sin este
