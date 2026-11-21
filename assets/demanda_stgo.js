@@ -488,7 +488,11 @@
       <section class="widget"><div class="widget-h"><div class="min-w-0"><h3 id="ds-est-t">Estaciones con más subidas</h3><span class="sub">día laboral · clic en una estación (mapa o barra): su curva horaria</span></div></div>
         <div class="widget-b !p-2.5"><div id="ds-est" style="height:600px;width:100%"></div></div></section></div>
       ${widget("ds-mcurva","Subidas y bajadas por hora","día laboral promedio · bajadas = sólo etapas con destino estimado por la DTPM (sin escalar)",280)}
-      ${D.mh ? widget("ds-mhist","Subidas por día laboral, 2012–2026","cortes públicos de la DTPM (una semana tipo por corte) · línea llena = series comparables · punteado = no comparable (pandemia; tablas con validaciones repetidas)",320,"",D.mh._nota) : ""}`;
+      ${D.mh ? widget("ds-mhist","Subidas por día laboral, 2012–2026","puntos = muestra de cada corte público DTPM (una semana, mes variable) · línea de puntos = estimación del promedio ANUAL (muestra / factor del mes) · ◆ = año medido completo jul-2025→jun-2026 · llena = comparable, punteada = no comparable",340,"",(D.mh._nota||"")+(D.ma?" "+D.ma._nota:"")) : ""}
+      ${D.ma ? `<div class="ds-g2">
+        ${widget("ds-mtipo","Demanda diaria por tipo de día · año jul-2025 → jun-2026","promedio de todos los días del año · laboral = lun–vie hábil · festivo = feriado que no cae en domingo",280)}
+        ${widget("ds-mestac","Estacionalidad del año (día laboral, sábado y domingo)","promedio diario de cada mes / promedio del año · 1 = un mes promedio",280)}
+      </div>` : ""}`;
     $("ds-lin").onclick = e => { const b=e.target.closest("button"); if(!b) return; S.linea=b.dataset.l; S.est=null; pintaMetroV(); };
     if(mapaM){ mapaM.remove(); mapaM=null; capaE=null; }
     mapaM = L.map("ds-mmap",{center:[CITY.lat0,CITY.lon0], zoom:11, preferCanvas:true}); basemap(mapaM);
@@ -526,12 +530,52 @@
                  ["B","2022–2023 tablas con repetidos (estimación sin repetidos)",t.warn,"dashed"],["C","2023-11 → 2026 (comparable)",t.live,"solid"]];
     $("ds-mhist").closest("section").querySelector("h3").textContent = "Subidas por día laboral, 2012–2026 · " +
       (e ? `${tit(e.est)}${st&&st.desde&&st.desde!=="2012-04" ? " (aparece desde "+st.desde+")" : ""}` : "red de Metro");
-    chart("ds-mhist").setOption({tooltip:{trigger:"axis", formatter:ps=>{ const p=ps.find(x=>x.value!=null); if(!p) return "";
-        const c=cs[p.dataIndex]; return `${c.corte} · serie ${c.serie}<br><b>${fmt(p.value)}</b> subidas/día laboral<br><span style="font-size:11px">${(c.nota||"").slice(0,140)}</span>`; }},
-      legend:{top:0, textStyle:{color:t.mid}}, grid:G({top:34}),
-      xAxis:{type:"category", data:ks, ...ejes(t), axisLabel:{color:t.mid, rotate:45, fontSize:10}}, yAxis:{type:"value", min:0, ...ejes(t)},
+    // estimación del promedio anual por corte (muestra / factor del mes, kpi_metro_anual.py) y el año medido completo
+    const ma = D.ma, ek = e && ma ? (ma.estaciones[e.est] ? e.est : Object.keys(ma.estaciones).find(x=>norm(x)===norm(e.est))) : null;
+    // la estimación anual sólo en las series comparables (A y C): no debe unir 2019 con la pandemia ni con 2022–2023
+    const estA = c => { if(!ma || (c.serie!=="A" && c.serie!=="C")) return null;
+      const r = e ? (ek && (ma.estaciones[ek].por_anio||{})[c.corte]) : ma.por_anio_total[c.corte];
+      return r && r.L ? r.L[1] : null; };
+    const medido = ma ? (e ? (ek && ma.estaciones[ek].anio.L ? ma.estaciones[ek].anio.L.sub : null) : ma.total.METRO.L.sub) : null;
+    const X = ks.concat(ma ? ["año 25–26"] : []), pad = a => a.concat(ma ? [null] : []);
+    chart("ds-mhist").setOption({tooltip:{trigger:"axis", formatter:ps=>{ const i=ps[0].dataIndex;
+        if(i>=cs.length) return `Año jul-2025 → jun-2026 (todos los días)<br><b>${fmt(medido)}</b> subidas/día laboral, medido`;
+        const c=cs[i], m=ps.find(x=>x.seriesName.startsWith("Estimación")), mu=ps.find(x=>x.value!=null&&!x.seriesName.startsWith("Estimación"));
+        return `${c.corte} · serie ${c.serie}` + (mu?`<br>muestra del corte: <b>${fmt(mu.value)}</b>`:"") + (m&&m.value!=null?`<br>estimación del promedio anual: <b>${fmt(m.value)}</b>`:"")
+          + `<br><span style="font-size:11px">${(c.nota||"").slice(0,140)}</span>`; }},
+      legend:{top:0, textStyle:{color:t.mid}}, grid:G({top:44}),
+      xAxis:{type:"category", data:X, ...ejes(t), axisLabel:{color:t.mid, rotate:45, fontSize:10}}, yAxis:{type:"value", min:0, ...ejes(t)},
       series:BLO.map(([b,n,c,ls])=>({name:n, type:"line", symbolSize:7, connectNulls:false, lineStyle:{color:c,width:2,type:ls},
-        itemStyle:{color:c}, data:cs.map(x=>x.serie===b ? v(x) : null)}))}, true);
+        itemStyle:{color:c}, data:pad(cs.map(x=>x.serie===b ? v(x) : null))}))
+        .concat(ma ? [{name:"Estimación del promedio anual", type:"line", symbol:"circle", symbolSize:4, connectNulls:false,
+                       lineStyle:{color:t.tx, width:1.4, type:"dotted"}, itemStyle:{color:t.tx}, data:pad(cs.map(estA))},
+                      {name:"Año medido (todos los días)", type:"scatter", symbol:"diamond", symbolSize:13, itemStyle:{color:"#e879f9"},
+                       data:X.map((_,i)=>i===X.length-1 ? medido : null)}] : [])}, true);
+    if(ma) tipoDia(ek, e);
+  }
+  function tipoDia(ek, e){
+    const ma = D.ma, t = th(); if(!ma || !$("ds-mtipo")) return;
+    const r = e ? (ek ? ma.estaciones[ek].anio : {}) : ma.total.METRO, ks = ["L","S","D","F"], nom = {L:"Laboral",S:"Sábado",D:"Domingo",F:"Festivo"};
+    $("ds-mtipo").closest("section").querySelector("h3").textContent = "Demanda diaria por tipo de día · jul-2025 → jun-2026 · " + (e ? tit(e.est) : "Metro completo");
+    chart("ds-mtipo").setOption({tooltip:{trigger:"axis",axisPointer:{type:"shadow"},formatter:ps=>{ const k=ks[ps[0].dataIndex];
+        return `${nom[k]} · ${fmt(ma.dias[k])} días<br>`+ps.map(p=>`${p.marker}${p.seriesName}: <b>${fmt(p.value)}</b>`).join("<br>"); }},
+      legend:{top:0,textStyle:{color:t.mid}}, grid:G({top:30}),
+      xAxis:{type:"category", data:ks.map(k=>nom[k]), ...ejes(t)}, yAxis:{type:"value", ...ejes(t)},
+      series:[{name:"Subidas", type:"bar", data:ks.map(k=>(r[k]||{}).sub||null), itemStyle:{color:t.live},
+               label:{show:true,position:"top",color:t.mid,fontSize:10,formatter:p=>fmt(p.value)}},
+              {name:"Bajadas (con destino estimado)", type:"bar", data:ks.map(k=>(r[k]||{}).baj||null), itemStyle:{color:t.warn}}]}, true);
+    // estacionalidad del año: factor del mes por tipo de día (Metro completo) y día laboral por día de la semana
+    const es = ma.estacionalidad, MM = ["07","08","09","10","11","12","01","02","03","04","05","06"];
+    const NM = {"01":"ene","02":"feb","03":"mar","04":"abr","05":"may","06":"jun","07":"jul","08":"ago","09":"sep","10":"oct","11":"nov","12":"dic"};
+    const dow = es.factor_dow_laboral, dn = {1:"lun",2:"mar",3:"mié",4:"jue",5:"vie"};
+    $("ds-mestac").closest("section").querySelector(".sub").textContent = "Metro completo · promedio diario de cada mes / promedio del año · 1 = mes promedio · día laboral por día de la semana: "
+      + Object.entries(dow).map(([k,v])=>`${dn[k]} ${v.factor.toLocaleString("es-CL",{minimumFractionDigits:2,maximumFractionDigits:2})}`).join(" · ");
+    chart("ds-mestac").setOption({tooltip:{trigger:"axis",valueFormatter:v=>v==null?"—":v.toLocaleString("es-CL",{minimumFractionDigits:3,maximumFractionDigits:3})},
+      legend:{top:0,textStyle:{color:t.mid}}, grid:G({top:30}),
+      xAxis:{type:"category", data:MM.map(m=>NM[m]), ...ejes(t)}, yAxis:{type:"value", min:0.5, ...ejes(t, v=>v.toLocaleString("es-CL",{maximumFractionDigits:2}))},
+      series:[["L","Laboral",COL_DT.L],["S","Sábado",COL_DT.S],["D","Domingo",COL_DT.D]].map(([k,n,c])=>({name:n, type:"line", symbolSize:6,
+          data:MM.map(m=>(es.factor_mes[m]||{})[k]||null), lineStyle:{color:c,width:2}, itemStyle:{color:c}}))
+        .concat([{type:"line", data:MM.map(()=>1), symbol:"none", lineStyle:{color:t.line,type:"dashed",width:1}, silent:true, tooltip:{show:false}}])}, true);
   }
   function curva(){
     historia();
@@ -625,9 +669,10 @@
     for(let y=+k0[0].slice(0,4), mo=+k0[0].slice(5); `${y}-${String(mo).padStart(2,"0")}` <= k0[k0.length-1]; mo===12?(y++,mo=1):mo++)
       ks.push(`${y}-${String(mo).padStart(2,"0")}`);
     ks.forEach(k => { m[k] = m0[k] || {}; });
-    ayuda(`Cómo cambia la demanda mes a mes: viajes por día de cada tipo, promedio del mes. El índice (base 100 = promedio
-      de los meses mostrados) permite comparar la forma de las tres curvas. La serie larga 2011–2026, con los cortes públicos
-      de la DTPM, viene en la fase 2.`);
+    ayuda(`Cómo cambia la demanda: mes a mes en el último año (viajes por día de cada tipo; el índice base 100 compara la
+      forma de las curvas) y, más abajo, <b>bus contra Metro de 2012 a 2026</b> con los cortes públicos de la DTPM (una semana
+      por año, corregida por el mes a promedio anual) y el año completo medido. Son validaciones, no pasajeros: la evasión
+      en bus es alta y cambia entre años.`);
     const s = k => ks.map(x => (m[x][k]||{}).viajes_dia || null);
     const ant = k => `${+k.slice(0,4)-1}${k.slice(4)}`;
     const yoy = ks.filter(k=>m[k].L && m[ant(k)] && m[ant(k)].L).map(k=>[k, m[k].L.viajes_dia, m[ant(k)].L.viajes_dia]);
@@ -638,6 +683,12 @@
     $("ds-cuerpo").innerHTML = widget("ds-mes","Viajes por día, mes a mes","promedio por día de cada tipo en el mes · sin días con pérdida de datos (misma regla en todos los meses)"
         + (pre.length ? ` · ${pre.join(" y ")} quedan fuera de la ventana del resto de la pestaña y entran sólo para comparar contra un año antes` : ""),340,
         `<div class="ds-seg" id="ds-evm" role="group" aria-label="Escala"><button data-m="abs" class="on">Viajes por día</button><button data-m="idx">Índice (base 100)</button></div>`) +
+      (D.bm ? widget("ds-bm","Bus y Metro, 2012–2026 (subidas por día laboral)",
+          "puntos = muestra de cada corte público DTPM (una semana) · línea de puntos = estimación del promedio ANUAL (muestra / factor del mes de cada modo) · ◆ = año medido jul-2025→jun-2026 · línea gris (eje derecho) = participación del bus · punteado = no comparable (pandemia; 2022–23 con repetidos)",380,"",D.bm._nota)
+        + `<div class="ds-g2">${widget("ds-bmtipo","Bus y Metro por tipo de día · jul-2025 → jun-2026","promedio de todos los días del año · subidas validadas (bus incluye zona paga)",280)}
+           ${widget("ds-bmestac","Estacionalidad del día laboral: bus y Metro","promedio de cada mes / promedio del año · 1 = mes promedio",280)}</div>` : "") +
+      (D.pd ? `<div class="ds-g2">${widget("ds-pdS","Peso del sábado: sábado / día laboral, por año","semana publicada de cada año (etapas DTPM) · franja = rango de una sola semana en meses lectivos 2025–26 (lo que cabe ahí no se distingue de la variación normal) · hueco = año de pandemia",300,"",D.pd._nota)}
+           ${widget("ds-pdD","Peso del domingo: domingo / día laboral, por año","misma lectura · los años sin fin de semana en la semana publicada (2017, 2018, 2023-11) no tienen punto",300)}</div>` : "") +
       (D.ex && D.ex.segmento_mes_L ? widget("ds-seg","Viajes según tipo de tarjeta, mes a mes","día laboral · índice base 100 = promedio de los meses · "+(D.ex._nota_segmento||""),300) : "");
     const pinta = modo => {
       document.querySelectorAll("#ds-evm button").forEach(b=>b.classList.toggle("on", b.dataset.m===modo));
@@ -648,6 +699,8 @@
     };
     $("ds-evm").onclick = e => { const b=e.target.closest("button"); if(b) pinta(b.dataset.m); };
     pinta("abs");
+    if(D.bm) busMetro();
+    if(D.pd) patronDiario();
     if(D.ex && D.ex.segmento_mes_L){
       const sm = D.ex.segmento_mes_L, km = ks, segs = ["adulto","estudiante","mayor","gratuito"];   // mismo eje de meses que el gráfico de arriba
       const cs = {adulto:"#2fb4ad", estudiante:"#f5b83d", mayor:"#9b8cff", gratuito:"#94a3b8"};
@@ -655,6 +708,69 @@
         xAxis:{type:"category", data:km, ...ejes(t)}, yAxis:{type:"value", scale:true, ...ejes(t, v=>fmt1(v))},
         series:segs.map(sg=>({name:tit(sg), type:"line", symbolSize:6, data:idx(km.map(k=>(sm[k]||{})[sg]||null)), lineStyle:{color:cs[sg],width:2}, itemStyle:{color:cs[sg]}}))});
     }
+  }
+
+  // bus frente a Metro (kpi_bus_metro.py): muestra por corte + estimación anual, año completo por tipo de día y estacionalidad
+  function busMetro(){
+    const bm = D.bm, t = th(), cs = Object.keys(bm.cortes).sort(), X = cs.concat(["año 25–26"]);
+    const comp = c => ["A","C"].includes(bm.cortes[c].serie);
+    const val = (c, m, k) => { const L = bm.cortes[c].L || {}; return L[k ? m+"_anual" : m] ?? null; };
+    const CM = {bus:"#f5b83d", metro:t.live}, NM = {bus:"Bus", metro:"Metro"};
+    const ser = [];
+    ["bus","metro"].forEach(m => {
+      ser.push({name:`${NM[m]} · muestra`, type:"line", symbolSize:6, connectNulls:false, lineStyle:{color:CM[m],width:2}, itemStyle:{color:CM[m]},
+                data:X.map(c => c in bm.cortes && comp(c) ? val(c,m) : null)});
+      ser.push({name:`${NM[m]} · no comparable`, type:"line", symbolSize:5, connectNulls:false, lineStyle:{color:CM[m],width:1.4,type:"dashed"}, itemStyle:{color:CM[m],opacity:.6},
+                data:X.map((c,i) => { if(!(c in bm.cortes)) return null; if(!comp(c)) return val(c,m);
+                  const p = cs[i-1], n = cs[i+1]; return ((p && !comp(p)) || (n && !comp(n))) ? val(c,m) : null; })});
+      ser.push({name:`${NM[m]} · estimación anual`, type:"line", symbol:"none", connectNulls:false, lineStyle:{color:CM[m],width:1.3,type:"dotted"}, itemStyle:{color:CM[m]},
+                data:X.map(c => c in bm.cortes && comp(c) ? val(c,m,true) : null)});
+      ser.push({name:`${NM[m]} · año medido`, type:"scatter", symbol:"diamond", symbolSize:13, itemStyle:{color:CM[m]},
+                data:X.map((c,i) => i===X.length-1 ? bm.anio.L[m] : null)});
+    });
+    const part = X.map(c => { if(c in bm.cortes){ const b=val(c,"bus"), m=val(c,"metro"); return b&&m ? 100*b/(b+m) : null; }
+      return 100*bm.anio.L.bus/(bm.anio.L.bus+bm.anio.L.metro); });
+    ser.push({name:"Participación del bus (%)", type:"line", yAxisIndex:1, symbolSize:4, connectNulls:true, lineStyle:{color:"#94a3b8",width:1.2}, itemStyle:{color:"#94a3b8"}, data:part});
+    chart("ds-bm").setOption({tooltip:{trigger:"axis", formatter:ps=>{ const i=ps[0].dataIndex, c=X[i];
+        const rows=ps.filter(p=>p.value!=null).map(p=>`${p.marker}${p.seriesName}: <b>${p.seriesName.startsWith("Participación")?fmt1(p.value)+" %":fmt(p.value)}</b>`).join("<br>");
+        const nota = c in bm.cortes ? `serie ${bm.cortes[c].serie}${bm.cortes[c].nota?" · "+bm.cortes[c].nota:""}` : "año completo medido";
+        return `${c} · ${nota}<br>${rows}`; }},
+      legend:{top:0, type:"scroll", textStyle:{color:t.mid}, data:ser.map(x=>x.name).filter(n=>!n.endsWith("no comparable"))}, grid:G({top:40}),
+      xAxis:{type:"category", data:X, ...ejes(t), axisLabel:{color:t.mid,rotate:45,fontSize:10}},
+      yAxis:[{type:"value", min:0, ...ejes(t)}, {type:"value", min:30, max:70, position:"right", ...ejes(t, v=>v+" %"), splitLine:{show:false}}],
+      series:ser}, true);
+    const ks = ["L","S","D","F"], tn = {L:"Laboral",S:"Sábado",D:"Domingo",F:"Festivo"};
+    chart("ds-bmtipo").setOption({tooltip:{trigger:"axis",axisPointer:{type:"shadow"},valueFormatter:fmt}, legend:{top:0,textStyle:{color:t.mid}}, grid:G({top:30}),
+      xAxis:{type:"category", data:ks.map(k=>tn[k]), ...ejes(t)}, yAxis:{type:"value", ...ejes(t)},
+      series:["bus","metro"].map(m=>({name:NM[m], type:"bar", data:ks.map(k=>(bm.anio[k]||{})[m]||null), itemStyle:{color:CM[m]},
+        label:{show:true,position:"top",color:t.mid,fontSize:9,formatter:p=>fmt(p.value)}}))}, true);
+    const MM = ["07","08","09","10","11","12","01","02","03","04","05","06"];
+    const NMES = {"01":"ene","02":"feb","03":"mar","04":"abr","05":"may","06":"jun","07":"jul","08":"ago","09":"sep","10":"oct","11":"nov","12":"dic"};
+    chart("ds-bmestac").setOption({tooltip:{trigger:"axis",valueFormatter:v=>v==null?"—":v.toLocaleString("es-CL",{minimumFractionDigits:3,maximumFractionDigits:3})},
+      legend:{top:0,textStyle:{color:t.mid}}, grid:G({top:30}),
+      xAxis:{type:"category", data:MM.map(m=>NMES[m]), ...ejes(t)}, yAxis:{type:"value", min:0.7, ...ejes(t, v=>v.toLocaleString("es-CL",{maximumFractionDigits:2}))},
+      series:["bus","metro"].map(m=>({name:NM[m], type:"line", symbolSize:6, data:MM.map(mm=>((bm.factor_mes[mm]||{}).L||{})[m]||null),
+        lineStyle:{color:CM[m],width:2}, itemStyle:{color:CM[m]}})).concat([{type:"line", data:MM.map(()=>1), symbol:"none",
+        lineStyle:{color:t.line,type:"dashed",width:1}, silent:true, tooltip:{show:false}}])}, true);
+  }
+
+  // estacionalidad diaria por año (kpi_patron_diario_semanas.py): S/L y D/L del sistema y de Metro con la banda de una semana
+  function patronDiario(){
+    const pd = D.pd, t = th(), cs = pd.cortes.filter(c=>c.corte!=="2023-08"), X = cs.map(c=>c.corte);
+    const band = (pd.banda_una_semana.lectivas||{}), CM = {sistema:"#94a3b8", metro:t.live}, NM = {sistema:"Sistema", metro:"Metro"};
+    const pand = c => /pandemia|no comparable/i.test(c.comparabilidad||"");
+    ["SL","DL"].forEach(k => {
+      const id = k==="SL" ? "ds-pdS" : "ds-pdD";
+      const ser = ["sistema","metro"].map(m => ({name:NM[m], type:"line", connectNulls:true, symbolSize:8, lineStyle:{color:CM[m],width:2}, itemStyle:{color:CM[m]},
+        data:cs.map(c => { const v=(c[m]||{})[k]; return v==null?null:{value:v, symbol: pand(c)?"emptyCircle":"circle"}; }),
+        markArea:{silent:true, itemStyle:{color:CM[m], opacity:.10}, data:[[{yAxis:((band[m]||{})[k]||{}).min},{yAxis:((band[m]||{})[k]||{}).max}]]}}));
+      chart(id).setOption({tooltip:{trigger:"axis", formatter:ps=>{ const c=cs[ps[0].dataIndex];
+          return `${c.corte}${pand(c)?" · pandemia":""}<br>`+ps.filter(p=>p.value!=null).map(p=>`${p.marker}${p.seriesName}: <b>${(p.value.value??p.value).toLocaleString("es-CL",{minimumFractionDigits:3,maximumFractionDigits:3})}</b>`).join("<br>")
+            +((c.fuera_de_banda||[]).length?`<br><span style="font-size:11px">fuera de la banda: ${c.fuera_de_banda.join("; ")}</span>`:""); }},
+        legend:{top:0,textStyle:{color:t.mid}}, grid:G({top:30}),
+        xAxis:{type:"category", data:X, ...ejes(t), axisLabel:{color:t.mid,rotate:45,fontSize:10}},
+        yAxis:{type:"value", scale:true, ...ejes(t, v=>v.toLocaleString("es-CL",{maximumFractionDigits:2}))}, series:ser}, true);
+    });
   }
 
   function dibuja(){
@@ -668,10 +784,10 @@
 
   async function carga(){
     const opc = n => J(n).catch(()=>null);
-    const [sis, zon, od, met, gz, gc, ex, zx, mh] = await Promise.all([J("stgo_sistema.json"), J("stgo_zonas.json"), J("stgo_od.json"),
+    const [sis, zon, od, met, gz, gc, ex, zx, mh, ma, bm, pd] = await Promise.all([J("stgo_sistema.json"), J("stgo_zonas.json"), J("stgo_od.json"),
       J("demanda_metro.json").catch(()=>({estaciones:[]})), J("zonas777.geojson"), J(CITY.comunasGeojson), opc("stgo_extra.json"),
-      opc("stgo_zonas_extra.json"), opc("stgo_metro_hist.json")]);
-    D = {sis, zon, od, met, ex, mh, zx: zx || {zonas:{}, comunas:{}}}; geoZ = gz; geoC = gc;
+      opc("stgo_zonas_extra.json"), opc("stgo_metro_hist.json"), opc("stgo_metro_anual.json"), opc("stgo_bus_metro.json"), opc("stgo_patron_diario.json")]);
+    D = {sis, zon, od, met, ex, mh, ma, bm, pd, zx: zx || {zonas:{}, comunas:{}}}; geoZ = gz; geoC = gc;
   }
   let _cargando = null;
   window.DemStgo = { render(){ esqueleto(); if(!D.sis){ if(!_cargando) _cargando = carga().then(dibuja).catch(e=>{

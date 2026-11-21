@@ -33,7 +33,7 @@ CITY.comunas=CITY.comunas||[]; CITY.comunasGeojson=CITY.comunasGeojson||"comunas
 CITY.live=!!CITY.live; CITY.liveBase=CITY.liveBase||""; CITY.voz=CITY.voz||{ejeSing:"eje",ejePlur:"ejes",EjePlur:"Ejes"};
 const _cap=t=>t?t.charAt(0).toUpperCase()+t.slice(1):t;
 const _liveUrl=n=> (CITY.live&&CITY.liveBase?CITY.liveBase:"data/")+n;
-const J = n => fetch(`data/${n}?v=250`).then(r=>{if(!r.ok)throw 0;return r.json();});
+const J = n => fetch(`data/${n}?v=251`).then(r=>{if(!r.ok)throw 0;return r.json();});
 // reloj en vivo (fecha + hora Chile) en el header — útil para las capturas
 function tickReloj(){
   const el = document.getElementById("hdr-reloj-txt"); if(!el) return;
@@ -951,13 +951,15 @@ function renderKPIs(cell){
       };
       const hh = bins[ip] || "";
       const tip = `Día laboral típico a las ${hh} · registro GPS histórico`;
-      const opts = {hist:true, normLbl:"día", tip};
+      // Sin arco ni flecha (pct=null): «punta contra promedio del día» con ▲ +47 % se leía como «ahora
+      // contra lo normal». El promedio queda como referencia en texto, y el sello dice de qué hora es.
+      // No se muestra «el típico de la hora actual»: un valor que cambia con el reloj sobre un dato que
+      // no cambia refuerza justo la lectura de vivo que se quiere evitar.
+      const opts = {hist:true, normLbl:"promedio del día", tip, tag:`típico ${hh}`};
       const cards = LIVE_KPIS.map(sp=>{
         const a = L[sp.k];
         const val = (Array.isArray(a) && a[ip]!=null) ? a[ip] : null;
-        const nrm = prom(sp.k);
-        const pct = (val!=null && nrm) ? 100*val/nrm : null;
-        return liveBox(sp, val, nrm, pct, opts);
+        return liveBox(sp, val, prom(sp.k), null, opts);
       });
       // 8ª tarjeta: líneas. Sin comparador (no tiene "promedio del día"), mismo formato de arco.
       cards.push(liveBox({k:"lineas", lab:"Líneas", ic:"🚏", dir:0, unit:"",
@@ -966,9 +968,10 @@ function renderKPIs(cell){
       $("kpis2").classList.add("kpis-8");
       $("kpis2").dataset.lin = "";                 // invalida el cache de tarjetas de renderLiveKPIs
       $("kpis2").innerHTML = cards.join("");
-      _kpiNote(`Cifras del <b>día laboral típico</b> en su punta (<b>${hh}</b>) comparadas con el `
-               + `<b>promedio del día de operación</b>, del registro GPS histórico`
-               + (CITY.live ? "" : " — esta ciudad no tiene feed en vivo") + ".");
+      _kpiNote(`<b>No es dato de este momento.</b> Cifras del <b>día laboral típico a las ${hh}</b> `
+               + `(la media hora de mayor flota en ruta), con el promedio del día de operación como referencia, `
+               + `del registro GPS histórico`
+               + (CITY.live ? " (el vivo aún no carga)" : " — esta ciudad no tiene feed en vivo") + ".");
       return;
     }
   }
@@ -1089,9 +1092,10 @@ function liveBox(s, live, norm, pct, opts){
   return `<div class="kpi klive${opts.hist?" k-hist":""}" data-k="${s.k}" style="border-color:${col}30"`+
     (opts.hist?` title="${opts.tip||"Del registro GPS histórico"}"`:"")+`>`+
     `<div class="lab"><span class="ic">${s.ic}</span>${s.lab}`+
-    // sin sello en la tarjeta: GCCP no lo lleva y la nota bajo la banda ya declara el período.
-    // El `title` conserva la advertencia al pasar el mouse, sin ensuciar el diseño.
-    ""+
+    // El vivo no lleva sello. La banda de una ciudad SIN vivo sí (opts.tag): el 4-nov-2026 Rodrigo leyó
+    // «5.125 en ruta, +47 %» como dato de las 13:59 cuando era la punta típica de las 08:00; la nota
+    // chica bajo la banda no bastó contra el reloj y la flecha.
+    (opts.tag ? `<span class="hist-tag">${opts.tag}</span>` : "")+
     `</div>`+
     `<svg class="gauge" viewBox="-8 -12 216 118">`+
       `<path class="g-track" d="M ${cx-r} ${cy} A ${r} ${r} 0 0 1 ${cx+r} ${cy}" fill="none" stroke="var(--line-soft)" stroke-width="8" stroke-linecap="round"/>`+
